@@ -9,14 +9,77 @@ logger = logging.getLogger("pt_agent.signin")
 class PTSignIn:
     """Automated sign-in & statistics scraper for PT sites"""
     def __init__(self, sites_config: List[Any]):
-        self.sites = [s for s in sites_config if getattr(s, "enabled", True) and getattr(s, "cookie", "")]
+        self.sites = [
+            s for s in sites_config 
+            if getattr(s, "enabled", True) and (getattr(s, "cookie", "") or "rousi" in getattr(s, "domain", "").lower())
+        ]
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         }
 
+    async def _signin_rousi(self, site) -> Dict[str, Any]:
+        result = {
+            "site": site.name,
+            "domain": site.domain,
+            "status": "unknown",
+            "message": "",
+            "bonus": None,
+            "ratio": None,
+            "uploaded": None,
+            "downloaded": None
+        }
+        token = getattr(site, "passkey", "") or getattr(site, "apikey", "")
+        if not token:
+            result["status"] = "failed"
+            result["message"] = "未配置 API Key"
+            return result
+
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": self.headers["User-Agent"],
+            "Accept": "application/json, text/plain, */*",
+            "Authorization": f"Bearer {token}"
+        }
+
+        async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+            try:
+                # 1. Signin (mode: fixed)
+                res = await client.post("https://rousi.pro/api/points/attendance", json={"mode": "fixed"}, headers=headers)
+                if res.status_code == 200 and res.json().get("code") == 0:
+                    data = res.json().get("data", {})
+                    reward = data.get("reward", 0)
+                    streak = data.get("current_streak", 0)
+                    result["status"] = "success"
+                    result["message"] = f"签到成功 (+{reward}魔力，连续{streak}天)"
+                elif res.status_code == 400 or (res.status_code == 200 and res.json().get("code") != 0):
+                    result["status"] = "success"
+                    result["message"] = "今日已签到"
+                else:
+                    result["status"] = "failed"
+                    result["message"] = f"HTTP {res.status_code}"
+
+                # 2. Get profile stats
+                prof_res = await client.get("https://rousi.pro/api/v1/profile", headers=headers)
+                if prof_res.status_code == 200 and prof_res.json().get("code") == 0:
+                    p = prof_res.json().get("data", {})
+                    result["bonus"] = str(p.get("karma", 0))
+                    result["ratio"] = f"{p.get('ratio', 0):.2f}"
+                    dl_bytes = p.get("downloaded", 0)
+                    up_bytes = int(dl_bytes * p.get("ratio", 0))
+                    result["downloaded"] = f"{dl_bytes / (1024**3):.2f} GB"
+                    result["uploaded"] = f"{up_bytes / (1024**3):.2f} GB"
+            except Exception as e:
+                result["status"] = "failed"
+                result["message"] = str(e)
+
+        return result
+
     async def signin_site(self, site) -> Dict[str, Any]:
+        if "rousi" in getattr(site, "domain", "").lower() or getattr(site, "type", "") == "peergo":
+            return await self._signin_rousi(site)
+
         result = {
             "site": site.name,
             "domain": site.domain,
