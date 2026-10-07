@@ -9,5 +9,5 @@ services:
     environment:
       - TZ=Asia/Shanghai
     volumes:
-      - ./config:/app/config
+      - .:/app
       - /vol1/1000/Media:/vol1/1000/Media

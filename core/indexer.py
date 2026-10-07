@@ -209,8 +209,30 @@ class PTIndexer:
 
         return score
 
-    async def search(self, keyword: str, free_only: bool = False, site_filter: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Search across all enabled sites with flagship cinephile ranking"""
+    def is_strictly_top_tier(self, title: str, subtitle: str) -> bool:
+        """Strictly determine if release is Top-Tier (4K/1080p REMUX or Original BluRay Disc)"""
+        text = f"{title} {subtitle}".upper()
+        
+        # 1. 绝对剔除枪版、3D和一切有损/低码率压制版/WEB-DL
+        if any(k in text for k in ["3D", "CAM", "HDCAM", "TELESYNC", "TS-", "TC-", "TC ", "WEB-DL", "WEBDL", "WEBRIP", "BDRIP", "HDRIP", "HDTV", "DVDRIP", "720P", "X264", "H264"]):
+            return False
+            
+        # 2. 必须具备母盘无损封装: REMUX 或 原盘 (UHD BluRay / BDMV / ISO / BluRay)
+        has_remux = "REMUX" in text
+        has_disc = any(k in text for k in ["UHD BLURAY", "UHD BLU-RAY", "BDMV", "ISO", "BLURAY", "BLU-RAY"])
+        
+        if not (has_remux or has_disc):
+            return False
+
+        # 3. 必须具备超清或高清分辨率
+        has_resolution = any(k in text for k in ["2160P", "4K", "UHD", "1080P"])
+        if not has_resolution:
+            return False
+            
+        return True
+
+    async def search(self, keyword: str, free_only: bool = False, site_filter: Optional[str] = None, top_tier_only: bool = True) -> List[Dict[str, Any]]:
+        """Search across all enabled sites with strict cinephile top-tier filtering"""
         all_results = []
         async with httpx.AsyncClient(timeout=25.0, follow_redirects=True, verify=False) as client:
             for site in self.sites:
@@ -223,12 +245,19 @@ class PTIndexer:
                     res = await self._search_nexusphp(site, keyword, client)
                 all_results.extend(res)
 
-        # Filter out 3D and bootlegs, score quality
+        # Enforce strict top-tier filter (REMUX / 原盘 only)
         filtered = []
         promo_bonus = {"2XFREE": 300, "FREE": 200, "50%": 50, "NORMAL": 0}
         
         for r in all_results:
-            q_score = self._calculate_quality_score(r.get("title", ""), r.get("subtitle", ""))
+            title = r.get("title", "")
+            subtitle = r.get("subtitle", "")
+            
+            # If top_tier_only is enabled, strictly filter out everything else
+            if top_tier_only and not self.is_strictly_top_tier(title, subtitle):
+                continue
+                
+            q_score = self._calculate_quality_score(title, subtitle)
             if q_score < 0:
                 continue
             if free_only and r["promo"] not in ("FREE", "2XFREE"):

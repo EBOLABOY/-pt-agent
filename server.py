@@ -75,8 +75,9 @@ app = FastAPI(title="pt-agent", description="AI-Native Lightweight PT & Media Au
 # Models
 class SearchRequest(BaseModel):
     query: str
-    free_only: bool = True
+    free_only: bool = False
     site_filter: Optional[str] = None
+    top_tier_only: bool = True
 
 class DownloadRequest(BaseModel):
     download_url: str
@@ -113,8 +114,8 @@ async def get_status():
 @app.post("/api/search")
 async def search_torrents(req: SearchRequest):
     """Search for torrents across configured PT sites"""
-    results = await indexer.search(keyword=req.query, free_only=req.free_only, site_filter=req.site_filter)
-    return {"query": req.query, "count": len(results), "results": results}
+    results = await indexer.search(keyword=req.query, free_only=req.free_only, site_filter=req.site_filter, top_tier_only=req.top_tier_only)
+    return {"query": req.query, "count": len(results), "top_tier_only": req.top_tier_only, "results": results}
 
 @app.post("/api/download")
 async def download_torrent(req: DownloadRequest):
@@ -223,7 +224,12 @@ async def mcp_endpoint(payload: Dict[str, Any]):
         
         try:
             if name == "pt_search":
-                res = await indexer.search(keyword=args.get("query"), free_only=args.get("free_only", True), site_filter=args.get("site_filter"))
+                res = await indexer.search(
+                    keyword=args.get("query"),
+                    free_only=args.get("free_only", False),
+                    site_filter=args.get("site_filter"),
+                    top_tier_only=args.get("top_tier_only", True)
+                )
                 return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}
             elif name == "pt_download":
                 success = await qb_client.add_torrent(urls=args.get("download_url"), category=args.get("category", "Media"))
