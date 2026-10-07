@@ -88,7 +88,37 @@ class QBittorrentClient:
         if torrent_content:
             files = {"torrents": (torrent_name, torrent_content, "application/x-bittorrent")}
         elif urls:
-            data["urls"] = urls
+            # If URL is HTTP/HTTPS, fetch torrent file directly to ensure 100% reliable import
+            if urls.startswith("http://") or urls.startswith("https://"):
+                try:
+                    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True, verify=False) as dl_client:
+                        headers = {
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                        }
+                        # If PeerGo / Rousi API endpoint
+                        if "/api/v1/torrents/" in urls and "token=" in urls:
+                            parts = urls.split("token=")
+                            token = parts[1].split("&")[0]
+                            detail_url = parts[0].rstrip("?")
+                            res = await dl_client.get(detail_url, headers={**headers, "Authorization": f"Bearer {token}"})
+                            if res.status_code == 200:
+                                dl_real = res.json().get("data", {}).get("download_url")
+                                if dl_real:
+                                    r = await dl_client.get(dl_real, headers=headers)
+                                    if r.status_code == 200 and len(r.content) > 100:
+                                        files = {"torrents": (torrent_name, r.content, "application/x-bittorrent")}
+                                        urls = None
+                        else:
+                            r = await dl_client.get(urls, headers=headers)
+                            if r.status_code == 200 and len(r.content) > 100:
+                                if r.content.startswith(b"d8:announce") or b":announce" in r.content[:200]:
+                                    files = {"torrents": (torrent_name, r.content, "application/x-bittorrent")}
+                                    urls = None
+                except Exception as e:
+                    logger.warning(f"Direct torrent file fetch failed, fallback to qB URL: {e}")
+
+            if urls:
+                data["urls"] = urls
         else:
             logger.error("Neither torrent_content nor urls provided to add_torrent")
             return False

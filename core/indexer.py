@@ -165,6 +165,92 @@ class PTIndexer:
             logger.error(f"Error searching Nyaa: {e}")
         return results
 
+    async def _search_peergo(self, site, keyword: str, client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+        """Search PeerGo (Rousi Pro) REST API"""
+        results = []
+        token = getattr(site, "passkey", "") or getattr(site, "apikey", "")
+        if not token:
+            logger.warning(f"{site.name} has no API Key / Token configured")
+            return []
+
+        base_url = site.base_url.rstrip("/")
+        search_url = f"{base_url}/api/v1/torrents"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "User-Agent": self.headers["User-Agent"]
+        }
+        params = {
+            "keyword": keyword,
+            "page": 1,
+            "page_size": 100
+        }
+
+        try:
+            resp = await client.get(search_url, headers=headers, params=params)
+            if resp.status_code == 401:
+                logger.error(f"{site.name} API Key is invalid or revoked (HTTP 401)")
+                return []
+            if resp.status_code != 200:
+                logger.warning(f"Search {site.name} failed with status {resp.status_code}")
+                return []
+
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.warning(f"{site.name} returned error: {data.get('message')}")
+                return []
+
+            torrents = data.get("data", {}).get("torrents", [])
+            for item in torrents:
+                t_id = str(item.get("id"))
+                title = item.get("title", "")
+                subtitle = item.get("subtitle", "")
+                size_bytes = int(item.get("size") or 0)
+                if size_bytes >= 1024 ** 4:
+                    size_str = f"{size_bytes / (1024 ** 4):.2f} TB"
+                elif size_bytes >= 1024 ** 3:
+                    size_str = f"{size_bytes / (1024 ** 3):.2f} GB"
+                else:
+                    size_str = f"{size_bytes / (1024 ** 2):.2f} MB"
+
+                seeders = int(item.get("seeders") or 0)
+                leechers = int(item.get("leechers") or 0)
+
+                promo = "NORMAL"
+                promotion = item.get("promotion") or {}
+                if promotion.get("is_active"):
+                    dm = float(promotion.get("down_multiplier", 1.0))
+                    um = float(promotion.get("up_multiplier", 1.0))
+                    if dm == 0.0 and um >= 2.0:
+                        promo = "2XFREE"
+                    elif dm == 0.0:
+                        promo = "FREE"
+                    elif dm <= 0.5:
+                        promo = "50%"
+
+                # Pass token in query so add_torrent can authorize detail fetch
+                download_url = f"{base_url}/api/v1/torrents/{t_id}?token={token}"
+                details_url = f"{base_url}/torrent/{item.get('uuid', t_id)}"
+
+                results.append({
+                    "site": site.name,
+                    "domain": site.domain,
+                    "torrent_id": t_id,
+                    "title": title,
+                    "subtitle": subtitle,
+                    "size": size_str,
+                    "seeders": seeders,
+                    "leechers": leechers,
+                    "promo": promo,
+                    "download_url": download_url,
+                    "details_url": details_url
+                })
+        except Exception as e:
+            logger.error(f"Error searching {site.name} PeerGo: {e}")
+
+        return results
+
+
     def _calculate_quality_score(self, title: str, subtitle: str) -> int:
         """Score torrent based on flagship Home-Theater hardware (TCL Q9M Pro + Samsung Q930B)"""
         text = f"{title} {subtitle}".upper()
@@ -241,6 +327,8 @@ class PTIndexer:
 
                 if "nyaa" in site.domain.lower():
                     res = await self._search_nyaa(keyword, client)
+                elif "rousi" in site.domain.lower() or getattr(site, "type", "") == "peergo":
+                    res = await self._search_peergo(site, keyword, client)
                 else:
                     res = await self._search_nexusphp(site, keyword, client)
                 all_results.extend(res)
