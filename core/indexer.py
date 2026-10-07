@@ -165,8 +165,52 @@ class PTIndexer:
             logger.error(f"Error searching Nyaa: {e}")
         return results
 
+    def _calculate_quality_score(self, title: str, subtitle: str) -> int:
+        """Score torrent based on flagship Home-Theater hardware (TCL Q9M Pro + Samsung Q930B)"""
+        text = f"{title} {subtitle}".upper()
+        
+        # 1. Reject unplayable or bootleg formats
+        if any(k in text for k in ["3D", "CAM", "HDCAM", "TELESYNC", "TS-", "TC-", "TC "]):
+            return -9999
+            
+        score = 0
+        
+        # 2. Master packaging (REMUX & UHD BluRay are King)
+        if "REMUX" in text:
+            score += 1200
+        elif any(k in text for k in ["UHD BLURAY", "UHD BLU-RAY", "BDMV", "ISO", "BLURAY", "BLU-RAY"]):
+            score += 1000
+        elif any(k in text for k in ["WEB-DL", "WEBDL", "HQ WEB-DL"]):
+            score += 500
+        elif any(k in text for k in ["BDRIP", "HDRIP"]):
+            score += 350
+
+        # 3. Resolution (4K / 2160p)
+        if any(k in text for k in ["2160P", "4K", "UHD"]):
+            score += 600
+        elif "1080P" in text:
+            score += 200
+
+        # 4. Premium Video Dynamics (TCL Q9M Pro Mini-LED powerhouse)
+        if any(k in text for k in ["DOVI", "DOLBY VISION", "DV"]):
+            score += 500
+        if "HDR10+" in text:
+            score += 450
+        elif "HDR" in text:
+            score += 300
+
+        # 5. Premium Lossless Audio (Samsung Q930B 9.1.4 Atmos powerhouse)
+        if any(k in text for k in ["ATMOS", "TRUEHD"]):
+            score += 500
+        if any(k in text for k in ["DTS:X", "DTS-HD", "DTS-HD MA"]):
+            score += 450
+        elif any(k in text for k in ["DDP5.1", "E-AC-3", "AC-3 5.1", "DTS 5.1"]):
+            score += 150
+
+        return score
+
     async def search(self, keyword: str, free_only: bool = False, site_filter: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Search across all enabled sites"""
+        """Search across all enabled sites with flagship cinephile ranking"""
         all_results = []
         async with httpx.AsyncClient(timeout=25.0, follow_redirects=True, verify=False) as client:
             for site in self.sites:
@@ -179,12 +223,23 @@ class PTIndexer:
                     res = await self._search_nexusphp(site, keyword, client)
                 all_results.extend(res)
 
-        # Filter by promo if required
-        if free_only:
-            all_results = [r for r in all_results if r["promo"] in ("FREE", "2XFREE")]
+        # Filter out 3D and bootlegs, score quality
+        filtered = []
+        promo_bonus = {"2XFREE": 300, "FREE": 200, "50%": 50, "NORMAL": 0}
+        
+        for r in all_results:
+            q_score = self._calculate_quality_score(r.get("title", ""), r.get("subtitle", ""))
+            if q_score < 0:
+                continue
+            if free_only and r["promo"] not in ("FREE", "2XFREE"):
+                continue
+                
+            p_bonus = promo_bonus.get(r.get("promo", "NORMAL"), 0)
+            s_bonus = min(r.get("seeders", 0) * 5, 200)  # Seeders bonus up to 200
+            
+            r["_score"] = q_score + p_bonus + s_bonus
+            filtered.append(r)
 
-        # Sort: first by 2XFREE/FREE, then by seeders descending
-        promo_rank = {"2XFREE": 2, "FREE": 1, "50%": 0, "NORMAL": -1}
-        all_results.sort(key=lambda x: (promo_rank.get(x["promo"], -1), x["seeders"]), reverse=True)
-
-        return all_results
+        # Sort: highest overall cinephile score first
+        filtered.sort(key=lambda x: x["_score"], reverse=True)
+        return filtered
