@@ -15,6 +15,7 @@ class IYUUClient:
         self.token = token
         self.qb = qb_client
         self.sites_config = {s.name.lower(): s for s in sites_config if getattr(s, "enabled", True)}
+        self.raw_sites = [s for s in sites_config if getattr(s, "enabled", True)]
         self.client = httpx.AsyncClient(timeout=30.0, headers={"token": token})
 
     async def get_sites(self) -> Dict[str, Any]:
@@ -123,22 +124,42 @@ class IYUUClient:
                         total_skipped += 1
                         continue
 
-                    # Find site config
-                    site_name = None
-                    for s_name, s_info in iyuu_sites.items():
-                        if s_info.get("id") == r_sid:
-                            site_name = s_name
+                    # Find site metadata from IYUU
+                    s_info = None
+                    for _, info in iyuu_sites.items():
+                        if info.get("id") == r_sid:
+                            s_info = info
                             break
 
-                    site_cfg = self.sites_config.get(site_name) if site_name else None
-                    if not site_cfg:
+                    if not s_info:
+                        total_skipped += 1
+                        continue
+
+                    # Match with user's local site configs
+                    site_cfg = None
+                    iyuu_s_name = s_info.get("site", "").lower()
+                    iyuu_nick = s_info.get("nickname", "")
+                    iyuu_domain = s_info.get("base_url", "").lower()
+
+                    for sc in self.raw_sites:
+                        sc_name = sc.name.lower()
+                        sc_dom = sc.domain.lower()
+                        if (iyuu_s_name in sc_name or sc_name in iyuu_s_name or
+                            iyuu_s_name in sc_dom or sc_dom in iyuu_domain or
+                            iyuu_domain in sc_dom or
+                            (iyuu_nick and (iyuu_nick in sc.name or sc.name in iyuu_nick))):
+                            site_cfg = sc
+                            break
+
+                    if not site_cfg or not site_cfg.passkey:
                         total_skipped += 1
                         continue
 
                     # Construct download URL with passkey
-                    download_url = None
-                    if site_cfg.passkey:
-                        download_url = f"{site_cfg.base_url.rstrip('/')}/download.php?id={r_torrent_id}&passkey={site_cfg.passkey}"
+                    dl_template = s_info.get("download_page") or "download.php?id={}&passkey={passkey}"
+                    dl_path = dl_template.replace("{}", str(r_torrent_id)).replace("{passkey}", site_cfg.passkey)
+                    base = site_cfg.base_url.rstrip("/")
+                    download_url = f"{base}/{dl_path.lstrip('/')}"
 
                     if download_url:
                         # Add torrent to qB with skip_checking=True
