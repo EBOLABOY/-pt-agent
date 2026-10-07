@@ -86,9 +86,15 @@ docker compose up -d
 | `pt_status` | 查看当前上传下载速度、做种总数及系统状态 | 无 |
 | `pt_organize` | 将下载目录硬链接并规范化命名入库飞牛影视 | `source_path`, `category`, `custom_title` |
 
-### 交互示例：
-* **你**：“帮我搜索并下载最新的《流浪地球2》，优先找 Free 种。”
-* **AI**：调用 `pt_search(query="流浪地球2", free_only=True)` ➔ 挑选做种数最多的结果 ➔ 调用 `pt_download(download_url=...)` ➔ 汇报已成功开始下载。
+### 双模运行机制 (Dual Modes)：
+
+1. **模式 A：订阅后台自动化模式 (Subscription Auto Mode)**
+   * 后台定时监听，严格只下音画质全网综合评分第 1 名的母盘（4K UHD REMUX / 原盘，DoVi + TrueHD Atmos 7.1 优先），全自动推送到 qB 并硬链接入库，无需人工干预。
+
+2. **模式 B：用户主动点播模式 (Interactive Manual Mode)**
+   * 当用户主动发起：“*帮我搜/下某部电影*” 时；
+   * AI 不直接私自下载，而是调用检索返回 **Top 10 最顶母盘资源候选清单**（标明格式、画质、无损音轨、体积与促销标签）；
+   * 等待用户回复序号确认后，再触发精准下载。
 
 ---
 
