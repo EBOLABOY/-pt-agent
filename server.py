@@ -13,6 +13,7 @@ from core.iyuu import IYUUClient
 from core.indexer import PTIndexer
 from core.signin import PTSignIn
 from core.organizer import MediaOrganizer
+from core.notify import Notifier
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("pt_agent.server")
@@ -34,17 +35,20 @@ iyuu_client = IYUUClient(
 indexer = PTIndexer(sites_config=config.sites)
 signin_service = PTSignIn(sites_config=config.sites)
 organizer = MediaOrganizer(media_root=config.media.media_dir)
+notifier = Notifier(pushplus_token=config.pushplus.token if config.pushplus.enabled else None)
 
 scheduler = AsyncIOScheduler()
 
 async def scheduled_signin():
     logger.info("Running scheduled daily PT signin...")
-    await signin_service.signin_all()
+    res = await signin_service.signin_all()
+    await notifier.send("PT 每日签到汇报", f"<pre>{res}</pre>")
 
 async def scheduled_reseed():
     if config.iyuu.enabled and config.iyuu.token:
         logger.info("Running scheduled IYUU auto-reseed...")
-        await iyuu_client.run_reseed()
+        res = await iyuu_client.run_reseed()
+        await notifier.send("IYUU 自动辅种结果", f"<pre>{res}</pre>")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

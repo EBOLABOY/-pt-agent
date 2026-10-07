@@ -1,0 +1,29 @@
+subscriptions:
+  - id: 1
+    name: "欢迎来龙餐馆"
+    year: "2026"
+    type: "电影"
+    douban_id: "35811064"
+    status: "active"
+
+  - id: 2
+    name: "挖掘者"
+    year: "2026"
+    type: "电影"
+    tmdb_id: 1248832
+    imdb_id: "tt31450459"
+    status: "active"
+
+  - id: 4
+    name: "八仙！"
+    year: "2026"
+    type: "电影"
+    douban_id: "36882191"
+    status: "active"
+
+  - id: 5
+    name: "空枪"
+    year: "2026"
+    type: "电影"
+    douban_id: "37508847"
+    status: "active"

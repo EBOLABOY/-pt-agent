@@ -33,9 +33,14 @@ class CookieCloudConfig(BaseModel):
     key: str = ""
     password: str = ""
 
+class PushPlusConfig(BaseModel):
+    enabled: bool = True
+    token: str = ""
+
 class AppConfig(BaseModel):
     qbittorrent: QBittorrentConfig = Field(default_factory=QBittorrentConfig)
     iyuu: IYUUConfig = Field(default_factory=IYUUConfig)
+    pushplus: PushPlusConfig = Field(default_factory=PushPlusConfig)
     sites: List[SiteConfig] = Field(default_factory=list)
     media: MediaConfig = Field(default_factory=MediaConfig)
     cookiecloud: CookieCloudConfig = Field(default_factory=CookieCloudConfig)
