@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  pt-agent:
+    image: pt-agent:latest
+    container_name: pt-agent
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./config:/app/config
+      - /vol1/1000/Media:/vol1/1000/Media

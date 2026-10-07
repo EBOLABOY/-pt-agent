@@ -1,0 +1,35 @@
+qbittorrent:
+  host: "http://192.168.100.3:8085"
+  username: "admin"
+  password: "your_password"
+
+iyuu:
+  token: "your_iyuu_token"
+  enabled: true
+  cron: "0 3 * * *"
+
+media:
+  download_dir: "/vol1/1000/Media"
+  media_dir: "/vol1/1000/Media"
+
+sites:
+  - name: "红豆饭"
+    domain: "hdfans.org"
+    base_url: "https://hdfans.org"
+    cookie: "your_cookie"
+    passkey: ""
+    enabled: true
+
+  - name: "PT时间"
+    domain: "pttime.org"
+    base_url: "https://www.pttime.org"
+    cookie: "your_cookie"
+    passkey: ""
+    enabled: true
+
+  - name: "Nyaa"
+    domain: "nyaa.si"
+    base_url: "https://nyaa.si"
+    cookie: ""
+    passkey: ""
+    enabled: true
