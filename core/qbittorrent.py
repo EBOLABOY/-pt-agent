@@ -125,6 +125,12 @@ class QBittorrentClient:
 
         try:
             resp = await self.client.post(f"{self.host}/api/v2/torrents/add", data=data, files=files)
+            if resp.status_code == 403:
+                logger.info("qBittorrent session expired, re-authenticating...")
+                self._logged_in = False
+                await self.login()
+                resp = await self.client.post(f"{self.host}/api/v2/torrents/add", data=data, files=files)
+
             if resp.status_code in (200, 204) and "Fails" not in resp.text:
                 logger.info(f"Torrent successfully added to qB: tags={tags}, save_path={save_path}")
                 return True
@@ -138,6 +144,10 @@ class QBittorrentClient:
         await self._ensure_logged_in()
         try:
             resp = await self.client.get(f"{self.host}/api/v2/transfer/info")
+            if resp.status_code == 403:
+                self._logged_in = False
+                await self.login()
+                resp = await self.client.get(f"{self.host}/api/v2/transfer/info")
             return resp.json() if resp.status_code == 200 else {}
         except Exception as e:
             logger.error(f"Error fetching transfer info: {e}")
