@@ -58,8 +58,9 @@ async def lifespan(app: FastAPI):
     
     # Schedule daily signin at 08:30
     scheduler.add_job(scheduled_signin, "cron", hour=8, minute=30)
-    # Schedule daily reseed at 03:00
+    # Schedule daily reseed at 03:00 and periodic reseed every 30 minutes
     scheduler.add_job(scheduled_reseed, "cron", hour=3, minute=0)
+    scheduler.add_job(scheduled_reseed, "interval", minutes=30)
     scheduler.start()
     
     yield
@@ -84,6 +85,9 @@ class DownloadRequest(BaseModel):
     category: str = "Media"
     save_path: Optional[str] = None
     tags: str = "PT_AGENT"
+    title: Optional[str] = None
+    query: Optional[str] = None
+    auto_cross_site: bool = True
 
 class OrganizeRequest(BaseModel):
     source_path: str
@@ -119,8 +123,15 @@ async def search_torrents(req: SearchRequest):
 
 @app.post("/api/download")
 async def download_torrent(req: DownloadRequest):
-    """Push torrent to qBittorrent"""
-    save_path = req.save_path or config.media.download_dir
+    """Push torrent to qBittorrent with automatic multi-site linkage synergy"""
+    if req.save_path:
+        save_path = req.save_path
+    elif req.category:
+        save_path = os.path.join(config.media.download_dir, req.category)
+    else:
+        save_path = config.media.download_dir
+
+    # 1. Add primary torrent
     success = await qb_client.add_torrent(
         urls=req.download_url,
         save_path=save_path,
@@ -129,7 +140,45 @@ async def download_torrent(req: DownloadRequest):
     )
     if not success:
         raise HTTPException(status_code=500, detail="Failed to add torrent to qBittorrent")
-    return {"status": "success", "message": "Torrent added to qBittorrent", "save_path": save_path}
+
+    # 2. Multi-site synergy linkage: automatically search & add matching releases from other sites
+    synergy_added = []
+    if req.auto_cross_site:
+        target_title = req.title
+        # If title wasn't passed, try to infer from download url or query
+        if not target_title and req.query:
+            target_title = req.query
+
+        if target_title:
+            try:
+                matches = await indexer.find_synergy_torrents(
+                    target_title=target_title,
+                    query=req.query,
+                    exclude_url=req.download_url
+                )
+                for m in matches:
+                    m_url = m.get("download_url")
+                    m_site = m.get("site")
+                    m_title = m.get("title")
+                    logger.info(f"Adding multi-site synergy torrent from {m_site}: {m_title}")
+                    added = await qb_client.add_torrent(
+                        urls=m_url,
+                        save_path=save_path,
+                        category=req.category,
+                        tags=f"{req.tags},MULTI_SITE,{m_site.upper()}"
+                    )
+                    if added:
+                        synergy_added.append({"site": m_site, "title": m_title})
+            except Exception as e:
+                logger.warning(f"Error executing auto cross-site synergy: {e}")
+
+    return {
+        "status": "success",
+        "message": "Torrent added with multi-site linkage",
+        "save_path": save_path,
+        "synergy_count": len(synergy_added),
+        "synergy_torrents": synergy_added
+    }
 
 @app.post("/api/reseed")
 async def run_reseed():
@@ -232,8 +281,15 @@ async def mcp_endpoint(payload: Dict[str, Any]):
                 )
                 return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}
             elif name == "pt_download":
-                success = await qb_client.add_torrent(urls=args.get("download_url"), category=args.get("category", "Media"))
-                return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": f"Download added: {success}"}]}}
+                d_req = DownloadRequest(
+                    download_url=args.get("download_url"),
+                    category=args.get("category", "外语电影"),
+                    title=args.get("title"),
+                    query=args.get("query"),
+                    auto_cross_site=args.get("auto_cross_site", True)
+                )
+                res = await download_torrent(d_req)
+                return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}
             elif name == "pt_reseed":
                 res = await iyuu_client.run_reseed()
                 return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": str(res)}]}}

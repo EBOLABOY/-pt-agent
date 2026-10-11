@@ -360,3 +360,81 @@ class PTIndexer:
         # Sort: highest overall cinephile score first
         filtered.sort(key=lambda x: x["_score"], reverse=True)
         return filtered
+
+    def normalize_title(self, t: str) -> str:
+        """Strip brackets, punctuation, and normalize whitespace for release matching"""
+        t = re.sub(r'\[.*?\]|\(.*?\)', ' ', t)
+        t = re.sub(r'[._\-:]', ' ', t)
+        return ' '.join(t.lower().split())
+
+    def extract_release_signature(self, title: str) -> Dict[str, Optional[str]]:
+        """Extract group, resolution, format, and year for accurate cross-site release matching"""
+        m_grp = re.search(r'-([a-zA-Z0-9@]+)$', title.strip())
+        group = m_grp.group(1).lower() if m_grp else None
+
+        m_res = re.search(r'(2160p|1080p|720p|4k|uhd)', title, re.I)
+        resolution = m_res.group(1).lower() if m_res else None
+
+        m_fmt = re.search(r'(remux|web-dl|webdl|bluray|blu-ray|bdmv)', title, re.I)
+        fmt = m_fmt.group(1).lower() if m_fmt else None
+
+        m_yr = re.search(r'\b(19\d\d|20\d\d)\b', title)
+        year = m_yr.group(1) if m_yr else None
+
+        return {
+            "group": group,
+            "resolution": resolution,
+            "fmt": fmt,
+            "year": year
+        }
+
+    def is_matching_release(self, title_a: str, title_b: str) -> bool:
+        """Determine if two releases from different sites are the identical movie release"""
+        norm_a = self.normalize_title(title_a)
+        norm_b = self.normalize_title(title_b)
+        if norm_a == norm_b:
+            return True
+
+        sig_a = self.extract_release_signature(title_a)
+        sig_b = self.extract_release_signature(title_b)
+
+        # Releases with same release group, resolution, format, and year
+        if sig_a["group"] and sig_b["group"] and sig_a["group"] == sig_b["group"]:
+            if sig_a["resolution"] and sig_b["resolution"] and sig_a["resolution"] == sig_b["resolution"]:
+                if sig_a["year"] and sig_b["year"] and sig_a["year"] == sig_b["year"]:
+                    words_a = set(norm_a.split())
+                    words_b = set(norm_b.split())
+                    common = words_a.intersection(words_b)
+                    if len(common) >= 3:
+                        return True
+        return False
+
+    async def find_synergy_torrents(self, target_title: str, query: Optional[str] = None, exclude_url: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Search other sites for matching releases to download and seed simultaneously"""
+        if not query:
+            clean = re.sub(r'\[.*?\]|\(.*?\)', ' ', target_title)
+            m_yr = re.search(r'\b(19\d\d|20\d\d)\b', clean)
+            if m_yr:
+                query = clean[:m_yr.end()].replace(".", " ").strip()
+            else:
+                query = clean.split("-")[0].replace(".", " ").strip()
+
+        logger.info(f"Looking for cross-site synergy torrents for '{target_title}' using query '{query}'")
+        search_res = await self.search(keyword=query, top_tier_only=False)
+
+        synergies = []
+        seen_sites = set()
+        for r in search_res:
+            r_url = r.get("download_url")
+            r_site = r.get("site")
+            if exclude_url and r_url == exclude_url:
+                seen_sites.add(r_site)
+                continue
+            if r_site in seen_sites:
+                continue
+
+            if self.is_matching_release(target_title, r.get("title", "")):
+                synergies.append(r)
+                seen_sites.add(r_site)
+
+        return synergies
