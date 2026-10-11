@@ -11,7 +11,9 @@ class PTSignIn:
     def __init__(self, sites_config: List[Any]):
         self.sites = [
             s for s in sites_config 
-            if getattr(s, "enabled", True) and (getattr(s, "cookie", "") or "rousi" in getattr(s, "domain", "").lower())
+            if getattr(s, "enabled", True) 
+            and (getattr(s, "cookie", "") or "rousi" in getattr(s, "domain", "").lower())
+            and "nyaa" not in getattr(s, "domain", "").lower()
         ]
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -124,14 +126,18 @@ class PTSignIn:
                         result["status"] = "failed"
                         result["message"] = f"HTTP {index_resp.status_code}"
 
+                # If stats not found in attendance page, get index page
+                if "魔力" not in text and "分享率" not in text:
+                    try:
+                        idx_resp = await client.get(f"{base_url}/index.php")
+                        if idx_resp.status_code == 200:
+                            text = idx_resp.text
+                    except Exception:
+                        pass
+
                 # 3. Parse user stats (Magic points, Ratio, Upload/Download)
                 soup = BeautifulSoup(text, "html.parser")
                 text_clean = soup.get_text()
-
-                # Bonus / 魔力
-                bonus_match = re.search(r'(?:魔力值|积分|Karma|Bonus)[：:\s]*([\d,.]+)', text_clean, re.I)
-                if bonus_match:
-                    result["bonus"] = bonus_match.group(1).replace(",", "")
 
                 # Ratio / 分享率
                 ratio_match = re.search(r'(?:分享率|Ratio)[：:\s]*([\d,.]+)', text_clean, re.I)
@@ -139,14 +145,21 @@ class PTSignIn:
                     result["ratio"] = ratio_match.group(1)
 
                 # Upload / 上传量
-                up_match = re.search(r'(?:上传量|Uploaded)[：:\s]*([\d,.]+\s*(?:[KMGTPE]?B|Bytes))', text_clean, re.I)
+                up_match = re.search(r'(?:上传量?|Uploaded)[：:\s]*([\d,.]+\s*(?:[KMGTPE]?B|Bytes))', text_clean, re.I)
                 if up_match:
                     result["uploaded"] = up_match.group(1).strip()
 
                 # Download / 下载量
-                down_match = re.search(r'(?:下载量|Downloaded)[：:\s]*([\d,.]+\s*(?:[KMGTPE]?B|Bytes))', text_clean, re.I)
+                down_match = re.search(r'(?:下载量?|Downloaded)[：:\s]*([\d,.]+\s*(?:[KMGTPE]?B|Bytes))', text_clean, re.I)
                 if down_match:
                     result["downloaded"] = down_match.group(1).strip()
+
+                # Bonus / 魔力
+                bonus_match = re.search(r'(?:魔力值|积分|Karma|Bonus)[^:\d]*[：:\s]*([\d,.]+)', text_clean, re.I)
+                if not bonus_match:
+                    bonus_match = re.search(r'\[使用.*?\][：:\s]*([\d,.]+)', text_clean)
+                if bonus_match:
+                    result["bonus"] = bonus_match.group(1).replace(",", "")
 
             except Exception as e:
                 logger.error(f"Error during sign-in for {site.name}: {e}")

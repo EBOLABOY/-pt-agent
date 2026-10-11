@@ -42,13 +42,13 @@ scheduler = AsyncIOScheduler()
 async def scheduled_signin():
     logger.info("Running scheduled daily PT signin...")
     res = await signin_service.signin_all()
-    await notifier.send("PT 每日签到汇报", f"<pre>{res}</pre>")
+    await notifier.send_signin(res)
 
 async def scheduled_reseed():
     if config.iyuu.enabled and config.iyuu.token:
         logger.info("Running scheduled IYUU auto-reseed...")
         res = await iyuu_client.run_reseed()
-        await notifier.send("IYUU 自动辅种结果", f"<pre>{res}</pre>")
+        await notifier.send_reseed(res)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -172,6 +172,15 @@ async def download_torrent(req: DownloadRequest):
             except Exception as e:
                 logger.warning(f"Error executing auto cross-site synergy: {e}")
 
+    # Send formatted Chinese notification card
+    display_title = req.title or req.query or "影视下载任务"
+    await notifier.send_download(
+        title=display_title,
+        category=req.category,
+        save_path=save_path,
+        synergy_sites=synergy_added
+    )
+
     return {
         "status": "success",
         "message": "Torrent added with multi-site linkage",
@@ -181,21 +190,27 @@ async def download_torrent(req: DownloadRequest):
     }
 
 @app.post("/api/reseed")
-async def run_reseed():
+async def run_reseed(notify: bool = False):
     """Trigger IYUU auto-reseed immediately"""
     res = await iyuu_client.run_reseed()
+    if notify:
+        await notifier.send_reseed(res)
     return res
 
 @app.post("/api/signin")
-async def run_signin():
+async def run_signin(notify: bool = False):
     """Trigger PT sites signin immediately"""
     res = await signin_service.signin_all()
+    if notify:
+        await notifier.send_signin(res)
     return {"status": "success", "results": res}
 
 @app.post("/api/organize")
 async def organize_media(req: OrganizeRequest):
     """Hardlink and organize media files for fnOS Media Center"""
     res = organizer.organize_path(source_path=req.source_path, category=req.category, custom_title=req.custom_title)
+    if res:
+        await notifier.send_organize(category=req.category, files=res)
     return {"status": "success", "count": len(res), "organized_files": res}
 
 # --- MCP (Model Context Protocol) JSON-RPC Standard Endpoint ---

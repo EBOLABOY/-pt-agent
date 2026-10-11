@@ -33,11 +33,20 @@ class MediaOrganizer:
     def hardlink_file(self, src_path: str, dst_path: str) -> bool:
         """Create a hardlink, fallback to copy if cross-device"""
         try:
-            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+            target_dir = os.path.dirname(dst_path)
+            os.makedirs(target_dir, exist_ok=True)
+            try:
+                os.chmod(target_dir, 0o775)
+            except Exception:
+                pass
             if os.path.exists(dst_path):
                 logger.info(f"Target already exists, skipping: {dst_path}")
                 return True
             os.link(src_path, dst_path)
+            try:
+                os.chmod(dst_path, 0o775)
+            except Exception:
+                pass
             logger.info(f"Hardlinked {src_path} -> {dst_path}")
             return True
         except OSError as e:
