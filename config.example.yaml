@@ -4,27 +4,40 @@ qbittorrent:
   password: "your_password"
 
 iyuu:
+  # IYUU 自动辅种 Token，请在 http://iyuu.cn 免费申请并绑定爱语飞飞微信
   token: "your_iyuu_token"
   enabled: true
   cron: "0 3 * * *"
+
+pushplus:
+  # PushPlus 微信推送 Token，请在 http://www.pushplus.plus 免费获取
+  enabled: true
+  token: "your_pushplus_token"
 
 media:
   download_dir: "/vol1/1000/Media"
   media_dir: "/vol1/1000/Media"
 
 sites:
-  - name: "红豆饭"
-    domain: "hdfans.org"
-    base_url: "https://hdfans.org"
-    cookie: "your_cookie"
-    passkey: ""
+  - name: "rousi"
+    domain: "rousi.pro"
+    base_url: "https://rousi.pro"
+    cookie: ""
+    passkey: "your_rousi_api_key_or_passkey"
     enabled: true
 
-  - name: "PT时间"
+  - name: "hdfans"
+    domain: "hdfans.org"
+    base_url: "https://hdfans.org"
+    cookie: "your_hdfans_cookie"
+    passkey: "your_hdfans_passkey"
+    enabled: true
+
+  - name: "pttime"
     domain: "pttime.org"
     base_url: "https://www.pttime.org"
-    cookie: "your_cookie"
-    passkey: ""
+    cookie: "your_pttime_cookie"
+    passkey: "your_pttime_passkey"
     enabled: true
 
   - name: "Nyaa"
